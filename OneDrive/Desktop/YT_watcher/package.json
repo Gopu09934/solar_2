@@ -1,0 +1,20 @@
+{
+  "name": "youtube-watcher",
+  "version": "1.0.0",
+  "description": "Watch YouTube videos for 6 hours in GitHub Actions",
+  "main": "watch-actual.js",
+  "scripts": {
+    "start": "node watch-actual.js",
+    "watch": "node watch-actual.js",
+    "test": "echo \"Testing...\""
+  },
+  "keywords": ["youtube", "watcher", "puppeteer", "automation"],
+  "author": "Claude",
+  "license": "MIT",
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
