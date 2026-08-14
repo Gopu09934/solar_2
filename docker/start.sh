@@ -158,61 +158,6 @@ if [ ! -s "$DOT_MARKER" ]; then
 fi
 
 #############################################
-# Trending-event image (left panel), downloaded
-# ONCE at startup — e.g. a picture for the Aug 12,
-# 2026 total solar eclipse callout.
-#
-# Optional: set EVENT_IMAGE_URL to a direct image
-# link. If it's unset or the download fails, the
-# TRENDING NOW block still renders with text only
-# (no picture, no crash) — see prepare_video_content.
-#############################################
-EVENT_IMAGE="event_image.jpg"
-EVENT_IMAGE_AVAILABLE=false
-if [ -n "${EVENT_IMAGE_URL:-}" ]; then
-    echo "Downloading trending-event image..."
-    if curl -sL --fail -o "$EVENT_IMAGE" "$EVENT_IMAGE_URL" && [ -s "$EVENT_IMAGE" ]; then
-        EVENT_IMAGE_AVAILABLE=true
-        echo "  OK ($(du -h "$EVENT_IMAGE" | cut -f1))"
-    else
-        echo "  WARNING: failed to download EVENT_IMAGE_URL — TRENDING NOW block will show text only."
-    fi
-else
-    echo "NOTICE: EVENT_IMAGE_URL not set — TRENDING NOW block will show text only."
-fi
-
-#############################################
-# Live "time until totality" countdown writer.
-# Pure local date-math — no API needed, unlike
-# the subs/viewers writers. Target is the moment
-# of greatest eclipse for the Aug 12, 2026 total
-# solar eclipse: 17:47:06 UTC.
-# Updates every 30s; ffmpeg re-reads the file via
-# reload=1 (same pattern as clock.txt / subs.txt).
-# Once the target has passed, switches the panel
-# to a "LIVE NOW" message instead of going negative.
-#############################################
-EVENT_COUNTDOWN_TARGET_EPOCH=$(date -u -d "2026-08-12 17:47:06" +%s)
-printf ' ' > "$ASSET_DIR/countdown.txt"
-(
-    while true; do
-        NOW_EPOCH=$(date -u +%s)
-        REMAIN=$((EVENT_COUNTDOWN_TARGET_EPOCH - NOW_EPOCH))
-        if [ "$REMAIN" -le 0 ]; then
-            printf 'TOTALITY IS LIVE NOW' > "$ASSET_DIR/countdown.txt.tmp"
-        else
-            CD_DAYS=$((REMAIN / 86400))
-            CD_HOURS=$(((REMAIN % 86400) / 3600))
-            CD_MINS=$(((REMAIN % 3600) / 60))
-            printf '%dD  %02dH  %02dM LEFT' "$CD_DAYS" "$CD_HOURS" "$CD_MINS" > "$ASSET_DIR/countdown.txt.tmp"
-        fi
-        mv -f "$ASSET_DIR/countdown.txt.tmp" "$ASSET_DIR/countdown.txt"
-        sleep 30
-    done
-) &
-COUNTDOWN_PID=$!
-
-#############################################
 # Background clock writer (avoids fragile
 # drawtext %{gmtime} expansion syntax)
 #############################################
@@ -299,7 +244,7 @@ if [ "$SHOW_STATS" = true ]; then
     VIEWERS_PID=$!
 fi
 
-trap 'kill "$CLOCK_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true' EXIT
+trap 'kill "$CLOCK_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true' EXIT
 
 #############################################
 # Static panel text (unchanged across videos)
@@ -312,10 +257,6 @@ printf 'SUBSCRIBE for the Sun, live 24/7'   > "$ASSET_DIR/cta.txt"
 printf 'DID YOU KNOW'                       > "$ASSET_DIR/fact_label.txt"
 printf 'INSTRUMENT'                         > "$ASSET_DIR/instr_label.txt"
 printf 'SDO · AIA'                          > "$ASSET_DIR/instr_title.txt"
-printf 'TRENDING NOW'                       > "$ASSET_DIR/trend_label.txt"
-printf 'TOTAL SOLAR ECLIPSE'                > "$ASSET_DIR/trend_title.txt"
-printf 'Greenland · Iceland · Spain'        > "$ASSET_DIR/trend_sub.txt"
-printf 'COUNTDOWN TO TOTALITY'              > "$ASSET_DIR/countdown_label.txt"
 
 #############################################
 # Default headline / fact pools (used as a
@@ -337,7 +278,6 @@ DEFAULT_HEADLINES=(
     "Solar maximum brings far more sunspots, flares, and eruptions than the quieter years of the cycle."
     "SDO has been watching the Sun continuously since its launch in 2010."
     "The corona, the Sun's faint outer atmosphere, is far hotter than the surface beneath it."
-    "TRENDING: a total solar eclipse sweeps over Greenland, Iceland, and Spain on August 12."
 )
 
 DEFAULT_FACTS=(
@@ -361,7 +301,6 @@ DEFAULT_FACTS=(
     "Solar maximum and solar minimum mark the peaks and lulls of the roughly eleven-year solar cycle."
     "Extreme ultraviolet light lets telescopes like SDO see structures invisible in ordinary light."
     "The Sun is close enough that its light and heat make life on Earth possible."
-    "On August 12, 2026, mainland Europe sees its first total solar eclipse since 1999."
 )
 
 #############################################
@@ -731,51 +670,37 @@ prepare_video_content() {
         fi
     done
 
-    # ---------------- Left panel: TRENDING NOW (Aug 12 eclipse) ----------------
-    # Replaces the old animated "solar activity" bar graph with a
-    # callout for the Aug 12, 2026 total solar eclipse: a pulsing
-    # "TRENDING NOW" tag, the event image (if EVENT_IMAGE_URL was
-    # downloaded at startup — see top of script), and a caption.
-    # If no image was downloaded, the picture frame is simply skipped
-    # and the text block is used on its own — nothing breaks.
-    local TREND_LABEL_Y=$((DOTS_Y + 34))
-    local TREND_IMG_Y=$((TREND_LABEL_Y + 20))
-    local TREND_IMG_W=$PANEL_TEXT_W
-    # The block's total height depends on how many lines the current
-    # headline wrapped to (DOTS_Y shifts with it), so the image height
-    # is computed to fit — never a fixed value — reserving TREND_TEXT_H
-    # below the image for the title + caption + countdown row, and
-    # keeping the whole thing above TREND_MAX_BOTTOM (comfortably clear
-    # of the bottom ticker bar, which starts at y=680). This is what
-    # broke before: a fixed image height could push text down into the
-    # ticker's y=680-720 band, where the ticker's opaque background
-    # (drawn later, on top) hid it.
-    local TREND_TEXT_H=88
-    local TREND_MAX_BOTTOM=670
-    local TREND_IMG_H=$((TREND_MAX_BOTTOM - TREND_IMG_Y - TREND_TEXT_H))
-    [ "$TREND_IMG_H" -gt 120 ] && TREND_IMG_H=120
-    [ "$TREND_IMG_H" -lt 40 ] && TREND_IMG_H=40
-    local TREND_TITLE_Y=$((TREND_IMG_Y + TREND_IMG_H + 8))
-    local TREND_SUB_Y=$((TREND_TITLE_Y + 24))
-    local TREND_CD_LABEL_Y=$((TREND_SUB_Y + 22))
-    local TREND_CD_VALUE_Y=$((TREND_CD_LABEL_Y + 15))
+    # ---------------- Left panel: live "solar activity" graph ----------------
+    # Fills the blank space under the progress dots with an animated
+    # equalizer-style bar graph plus a live-looking percentage readout.
+    # Every bar is a pure ffmpeg expression (two out-of-phase sine waves
+    # per bar, clipped to a min/max height) — no extra background writer
+    # needed, and drawbox re-evaluates x/y/w/h every frame so it never
+    # looks frozen the way a static overlay would.
+    local GRAPH_LABEL_Y=$((DOTS_Y + 40))
+    local GRAPH_BASE_Y=$((GRAPH_LABEL_Y + 160))
+    local BAR_COUNT=14
+    local BAR_W=13
+    local BAR_GAP=6
+    local BAR_MINH=8
+    local BAR_MAXH=100
 
-    CHAIN+="[${prev}]drawbox=x=$((TEXT_INSET - 2)):y=$((TREND_LABEL_Y - 2)):w=6:h=6:color=${RED}:t=fill:enable='lt(mod(t\,1.2)\,0.75)'[tr1];"
-    CHAIN+="[tr1]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/trend_label.txt:fontcolor=white@0.55:fontsize=11:x=$((TEXT_INSET + 14)):y=$((TREND_LABEL_Y - 8))[tr2];"
-    prev="tr2"
+    CHAIN+="[${prev}]drawbox=x=$((TEXT_INSET - 2)):y=$((GRAPH_LABEL_Y - 2)):w=6:h=6:color=${GOLD}:t=fill:enable='lt(mod(t\,1.4)\,0.9)'[sa1];"
+    CHAIN+="[sa1]drawtext=fontfile=${FONT}:text='SOLAR ACTIVITY':fontcolor=white@0.55:fontsize=11:x=$((TEXT_INSET + 14)):y=$((GRAPH_LABEL_Y - 8))[sa2];"
+    CHAIN+="[sa2]drawtext=fontfile=${FONT}:text='%{eif\:64+24*sin(2*PI*t/11)\:d} PCT':fontcolor=${GOLD}:fontsize=16:x=${TEXT_INSET}:y=$((GRAPH_LABEL_Y + 10)):${SHADOW}[sa3];"
+    prev="sa3"
 
-    if [ "$EVENT_IMAGE_AVAILABLE" = true ]; then
-        CHAIN+="[${prev}]drawbox=x=$((TEXT_INSET - 3)):y=$((TREND_IMG_Y - 3)):w=$((TREND_IMG_W + 6)):h=$((TREND_IMG_H + 6)):color=${GOLD}@0.7:t=2[tr3];"
-        CHAIN+="[3:v]scale=${TREND_IMG_W}:${TREND_IMG_H}:force_original_aspect_ratio=increase,crop=${TREND_IMG_W}:${TREND_IMG_H}[trimg];"
-        CHAIN+="[tr3][trimg]overlay=${TEXT_INSET}:${TREND_IMG_Y}:shortest=1[tr4];"
-        prev="tr4"
-    fi
-
-    CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/trend_title.txt:fontcolor=${GOLD}:fontsize=18:x=${TEXT_INSET}:y=${TREND_TITLE_Y}:${SHADOW}[tr5];"
-    CHAIN+="[tr5]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/trend_sub.txt:fontcolor=white@0.8:fontsize=13:x=${TEXT_INSET}:y=${TREND_SUB_Y}[tr6];"
-    CHAIN+="[tr6]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown_label.txt:fontcolor=white@0.45:fontsize=10:x=${TEXT_INSET}:y=${TREND_CD_LABEL_Y}[tr7];"
-    CHAIN+="[tr7]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown.txt:reload=1:fontcolor=${GOLD}:fontsize=17:x=${TEXT_INSET}:y=${TREND_CD_VALUE_Y}:${SHADOW}[trend_out];"
-    prev="trend_out"
+    local bi bx h_expr y_expr bnxt
+    for ((bi = 0; bi < BAR_COUNT; bi++)); do
+        bx=$((TEXT_INSET + bi * (BAR_W + BAR_GAP)))
+        h_expr="clip(60+38*sin(2*PI*t/3.1+${bi}*0.55)+18*sin(2*PI*t/1.6+${bi}*0.9)\,${BAR_MINH}\,${BAR_MAXH})"
+        y_expr="${GRAPH_BASE_Y}-(${h_expr})"
+        bnxt="sabar${bi}"
+        CHAIN+="[${prev}]drawbox=x=${bx}:y='${y_expr}':w=${BAR_W}:h='${h_expr}':color=${GOLD}@0.8:t=fill[${bnxt}];"
+        prev="$bnxt"
+    done
+    CHAIN+="[${prev}]drawbox=x=${TEXT_INSET}:y=${GRAPH_BASE_Y}:w=${PANEL_TEXT_W}:h=1:color=white@0.2:t=fill[sabase];"
+    prev="sabase"
 
     # ---------------- Right panel: stats + instrument + facts ----------------
     CHAIN+="[${prev}]drawbox=x=${RIGHT_X0}:y=0:w=${PANEL_W}:h=720:color=black@0.92:t=fill[r1];"
@@ -912,13 +837,10 @@ run_video() {
     duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$url" 2>/dev/null || echo "")
     duration=${duration%.*}
     [[ "$duration" =~ ^[0-9]+$ ]] || duration=""
-
-    local HARD_CAP=""
     if [ -n "$duration" ]; then
-        HARD_CAP=$((duration + 90))   # grace period past expected end
-        echo "Probed duration: ${duration}s (hard cap ${HARD_CAP}s)"
+        echo "Probed duration: ${duration}s"
     else
-        echo "Could not probe duration — countdown will show generic filler text, and no hard cap will apply (relying on natural EOF)."
+        echo "Could not probe duration — countdown will show generic filler text."
     fi
 
     local filter
@@ -937,16 +859,6 @@ run_video() {
         AUDIO_INPUT_ARGS=(-f lavfi -i "anullsrc=r=48000:cl=stereo")
     fi
 
-    # Trending-event image goes AFTER audio so it lands at input index 3
-    # without disturbing AUDIO_MAP (still "2:a"). Only added when a real
-    # image was downloaded at startup — the filter graph only ever
-    # references [3:v] when EVENT_IMAGE_AVAILABLE is true (see
-    # prepare_video_content), so it's safe to omit this input otherwise.
-    local EVENT_IMAGE_INPUT_ARGS=()
-if [ "$EVENT_IMAGE_AVAILABLE" = true ]; then
-    EVENT_IMAGE_INPUT_ARGS=(-thread_queue_size 512 -loop 1 -framerate 30 -i "$EVENT_IMAGE")
-fi
-
     while [ "$attempt" -le "$MAX_RETRIES" ]; do
         echo "----------------------------------------"
         echo "Streaming (attempt ${attempt}/${MAX_RETRIES}):"
@@ -962,9 +874,8 @@ fi
         -reconnect_delay_max 5 \
         -re \
         -i "$url" \
-        -loop 1 -framerate 30 -i "$DOT_MARKER" \
+        -loop 1 -i "$DOT_MARKER" \
         "${AUDIO_INPUT_ARGS[@]}" \
-        "${EVENT_IMAGE_INPUT_ARGS[@]}" \
         -filter_complex "$filter" \
         -map "[final]" \
         -map "$AUDIO_MAP" \
@@ -989,24 +900,8 @@ fi
         -ac 2 \
         -shortest \
         -f flv \
-        "rtmp://a.rtmp.youtube.com/live2/${YOUTUBE_STREAM_KEY}" &
-        local FFMPEG_PID=$!
-
-        local WATCHDOG_PID=""
-        if [ -n "$HARD_CAP" ]; then
-            (
-                sleep "$HARD_CAP"
-                if kill -0 "$FFMPEG_PID" 2>/dev/null; then
-                    echo "WARNING: ffmpeg overran hard cap (${HARD_CAP}s) — force-killing to advance to next video."
-                    kill -9 "$FFMPEG_PID" 2>/dev/null
-                fi
-            ) &
-            WATCHDOG_PID=$!
-        fi
-
-        wait "$FFMPEG_PID"
+        "rtmp://a.rtmp.youtube.com/live2/${YOUTUBE_STREAM_KEY}"
         local exit_code=$?
-        [ -n "$WATCHDOG_PID" ] && kill "$WATCHDOG_PID" 2>/dev/null
         set -e
 
         if [ "$exit_code" -eq 0 ]; then
