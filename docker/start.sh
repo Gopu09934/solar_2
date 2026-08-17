@@ -30,20 +30,20 @@ if [ -z "${YOUTUBE_API_KEY:-}" ] || [ -z "${YOUTUBE_CHANNEL_ID:-}" ]; then
 fi
 
 echo "========================================"
-echo "Starting 24/7 YouTube Stream (Sun / SDO Overlay)"
+echo "Starting 24/7 YouTube Stream (NASA Spacewalk — Premium Glass Overlay)"
 echo "Output Resolution : 1280x720 (720p — sized for a 2-core CI runner)"
 echo "FPS               : 30"
 echo "========================================"
 
 FONT="font.ttf"
-GOLD="0xE8A33D"
-RED="0xE8453C"
+GOLD="0xD4AF37"     # rich, premium gold accent
+RED="0xFC3D21"      # official NASA red — used for the LIVE dot / signal indicator
 ASSET_DIR="panel_assets"
-INFO_FILE="solar_info.txt"
+INFO_FILE="mission_info.txt"
 SLOT=6            # seconds each headline is shown
 FACT_SLOT=8       # seconds each fun fact is shown
 TICKER_SPEED=110  # pixels/second for the bottom ticker scroll
-CHANNEL_NAME="Solar Watch Live"
+CHANNEL_NAME="NASA Spacewalk Live"
 SHADOW="shadowcolor=black@0.6:shadowx=1:shadowy=1"
 HEADLINE_FONTSIZE=21
 HEADLINE_LINE_SPACING=9
@@ -53,12 +53,14 @@ FACT_LINE_SPACING=7
 FACT_LINE_H=$((FACT_FONTSIZE + FACT_LINE_SPACING))
 
 # ---------------------------------------------------------------
-# Layout: the Sun stays centered and full-height. A dedicated
-# panel sits on EACH side (left = story/headlines, right = live
-# stats + instrument info + fun facts), instead of the single
-# left-hand panel drawn over the video in the original design.
-# Because nothing now overlaps the video, panels can use a solid
-# background instead of a semi-transparent one over footage.
+# Layout: the mission video stays centered and full-height. A
+# dedicated panel sits on EACH side (left = mission story/
+# headlines, right = live stats + EVA info + fun facts).
+#
+# Panels are rendered as translucent "glass" cards (PANEL_BG /
+# PANEL_ALPHA below) rather than a solid fill, so the spacewalk
+# footage still shows through them — the premium, transparent
+# look that was asked for, instead of the flat opaque panel.
 # ---------------------------------------------------------------
 PANEL_W=333          # width of each side panel
 CENTER_X0=$PANEL_W                     # left edge of the video strip
@@ -67,6 +69,10 @@ RIGHT_X0=$((1280 - PANEL_W))           # left edge of the right panel (947)
 TEXT_INSET=33                          # left panel text left-inset
 RTEXT_INSET=$((RIGHT_X0 + 33))         # right panel text left-inset
 PANEL_TEXT_W=$((PANEL_W - 66))         # usable text width inside a panel
+
+# Premium glass-panel styling. Lower PANEL_ALPHA = more see-through.
+PANEL_BG="0x070B14"     # deep space-navy tint (not flat black)
+PANEL_ALPHA=0.45        # panel transparency: 0 = invisible, 1 = solid
 
 # Don't show "N watching now" until the live viewer count reaches this
 # many — a very low number (e.g. "5 watching") reads worse to a new
@@ -143,7 +149,7 @@ AUDIO_COUNTER=0   # persists across the whole run; advances one track per video
 # have a matching .labels.txt file.
 #############################################
 DOT_MARKER="dot_marker.png"
-GOLD_R=232; GOLD_G=163; GOLD_B=61
+GOLD_R=212; GOLD_G=175; GOLD_B=55
 DOT_VF="format=rgba,geq=r=(if(lte(hypot(X-10\,Y-10)\,5)\,${GOLD_R}\,if(lte(hypot(X-10\,Y-10)\,8)\,255\,0))):g=(if(lte(hypot(X-10\,Y-10)\,5)\,${GOLD_G}\,if(lte(hypot(X-10\,Y-10)\,8)\,255\,0))):b=(if(lte(hypot(X-10\,Y-10)\,5)\,${GOLD_B}\,if(lte(hypot(X-10\,Y-10)\,8)\,255\,0))):a=(if(lte(hypot(X-10\,Y-10)\,8)\,255\,0))"
 ffmpeg -y -f lavfi -i "color=c=black@0.0:s=20x20" -vf "$DOT_VF" -frames:v 1 "$DOT_MARKER" -loglevel error
 if [ ! -s "$DOT_MARKER" ]; then
@@ -249,65 +255,67 @@ trap 'kill "$CLOCK_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_P
 #############################################
 # Static panel text (unchanged across videos)
 #############################################
-printf 'S O L A R   D Y N A M I C S'        > "$ASSET_DIR/title1.txt"
-printf 'O B S E R V A T O R Y'              > "$ASSET_DIR/title2.txt"
-printf "T O D A Y ' S   S O L A R   S T O R Y" > "$ASSET_DIR/header.txt"
-printf 'LIVE FROM SDO'                      > "$ASSET_DIR/eyebrow.txt"
-printf 'SUBSCRIBE for the Sun, live 24/7'   > "$ASSET_DIR/cta.txt"
+printf 'N A S A'                            > "$ASSET_DIR/title1.txt"
+printf 'S P A C E W A L K'                  > "$ASSET_DIR/title2.txt"
+printf 'M I S S I O N   B R I E F'          > "$ASSET_DIR/header.txt"
+printf 'LIVE FROM ORBIT'                    > "$ASSET_DIR/eyebrow.txt"
+printf 'SUBSCRIBE for every NASA spacewalk' > "$ASSET_DIR/cta.txt"
 printf 'DID YOU KNOW'                       > "$ASSET_DIR/fact_label.txt"
-printf 'INSTRUMENT'                         > "$ASSET_DIR/instr_label.txt"
-printf 'SDO · AIA'                          > "$ASSET_DIR/instr_title.txt"
+printf 'EVA MISSION'                        > "$ASSET_DIR/instr_label.txt"
+printf 'US EVA-97'                          > "$ASSET_DIR/instr_title.txt"
 
 #############################################
 # Default headline / fact pools (used as a
-# last resort if solar_info.txt / facts.txt
-# are missing or empty)
+# last resort if mission_info.txt / facts.txt
+# are missing or empty). Content below is
+# drawn from NASA's Aug 2026 spacewalk media
+# advisory covering US EVA 96, 97 and 98.
 #############################################
 DEFAULT_HEADLINES=(
-    "NASA's Solar Dynamics Observatory watches the Sun around the clock from Earth orbit."
-    "SDO captures the Sun in many wavelengths, each revealing a different layer of its atmosphere."
-    "This live view tracks the Sun through solar maximum, the most active point of its eleven-year cycle."
-    "Bright active regions glow in extreme ultraviolet light where the Sun's magnetic field is strongest."
-    "Powerful X-class flares appear as sudden bright flashes with vertical streaks from camera saturation."
-    "Looping plasma structures called prominences and filaments trace the Sun's magnetic field lines."
-    "Twice a year Earth passes between SDO and the Sun, producing brief on-screen eclipses."
-    "Each SDO frame captures just twelve seconds of real time, the observatory's finest resolution."
-    "The 304-angstrom wavelength highlights prominences and filaments arcing above the solar surface."
-    "The 171-angstrom wavelength reveals the Sun's outer atmosphere and eruptions along its edge."
-    "Occasional blocky dark patches in the footage mark brief gaps in the data stream."
-    "Solar maximum brings far more sunspots, flares, and eruptions than the quieter years of the cycle."
-    "SDO has been watching the Sun continuously since its launch in 2010."
-    "The corona, the Sun's faint outer atmosphere, is far hotter than the surface beneath it."
+    "NASA is covering three spacewalks in August as crews upgrade station solar power systems."
+    "US spacewalk 96 on Aug 6 prepped the station's 3B power channel for a new solar array."
+    "Jessica Meir and Anil Menon exited the Quest airlock together for spacewalk 96."
+    "The upcoming solar array will be the seventh IROSA installed on the station."
+    "US spacewalk 97 on Aug 18 replaces a Space-to-Ground antenna used for mission comms."
+    "Anil Menon and ESA astronaut Sophie Adenot are paired for spacewalk 97."
+    "Sophie Adenot is set to become the first French woman to complete a spacewalk."
+    "US spacewalk 98 on Aug 25 covers power cables and a docking aid on the Harmony module."
+    "These three spacewalks mark the 281st through 283rd in station assembly history."
+    "Every spacewalk begins with astronauts exiting the space station's Quest airlock."
+    "Lead spacewalkers wear red-striped suits so ground teams can tell crew members apart."
+    "The upgrades support future preparations for the space station's eventual deorbit."
+    "Mission Control in Houston guides every spacewalk from planning through completion."
+    "NASA streams each spacewalk live so viewers can watch history from low Earth orbit."
 )
 
 DEFAULT_FACTS=(
-    "SDO orbits Earth so it can keep an almost unbroken watch on the Sun."
-    "The Sun's visible surface sits around 5,500 degrees Celsius."
-    "The Sun's corona can reach temperatures above a million degrees Celsius."
-    "A single solar flare can release as much energy as billions of hydrogen bombs."
-    "The Sun's magnetic field flips polarity roughly every eleven years."
-    "Sunspots are cooler, darker patches caused by intense magnetic activity."
-    "A coronal mass ejection can hurl billions of tons of solar plasma into space."
-    "Sunlight takes about eight minutes to travel from the Sun to Earth."
-    "The Sun holds more than 99 percent of the mass in our solar system."
-    "Solar wind streams outward from the Sun and shapes the magnetic fields of nearby planets."
-    "X-class flares are the most powerful category and can disrupt radio signals on Earth."
-    "Auroras form when solar particles collide with gases in Earth's upper atmosphere."
-    "The Sun is a middle-aged star, roughly 4.6 billion years old."
-    "Prominences are loops of relatively cool plasma suspended by the Sun's magnetic field."
-    "The Sun rotates faster at its equator than near its poles."
-    "It takes light from the Sun's core about 100,000 years to reach its surface."
-    "The Sun converts about four million tons of mass into energy every second."
-    "Solar maximum and solar minimum mark the peaks and lulls of the roughly eleven-year solar cycle."
-    "Extreme ultraviolet light lets telescopes like SDO see structures invisible in ordinary light."
-    "The Sun is close enough that its light and heat make life on Earth possible."
+    "A typical spacewalk lasts about six to seven hours outside the station."
+    "Spacesuits are essentially personal spacecraft, shielding astronauts from the vacuum of space."
+    "The International Space Station circles Earth roughly once every 90 minutes."
+    "Astronauts rehearse spacewalks for hours underwater in a giant training pool."
+    "Spacewalks are officially called EVAs, short for extravehicular activity."
+    "Suit markings like red stripes help Mission Control tell spacewalkers apart on video."
+    "The Quest airlock lets crews move safely between station air and the vacuum outside."
+    "Spacesuit gloves are custom-molded to each astronaut's hands for a precise fit."
+    "The space station has hosted spacewalks since the earliest days of its assembly."
+    "Roll-out solar arrays like IROSA unfurl to boost the station's onboard power."
+    "Astronauts tether every tool during a spacewalk so nothing drifts away."
+    "Helmet cameras let Mission Control watch each spacewalk's progress in real time."
+    "The station's solar arrays turn sunlight into power for life support and research."
+    "A spacewalking astronaut can lose several pounds of body water to sweat in one EVA."
+    "Houston stays in contact with the crew through antennas like the one being replaced."
+    "Spacewalks are planned meticulously, with astronauts rehearsing every step beforehand."
+    "The Harmony module's docking port welcomes arriving cargo and crew spacecraft."
+    "Spacewalkers move hand over hand along handrails built into the station's exterior."
+    "The space station orbits roughly 400 kilometers above Earth's surface."
+    "Every spacewalk adds to decades of ongoing station assembly and maintenance work."
 )
 
 #############################################
 # build_labels_chain: optional feature — draws
 # pointer/callout labels onto specific
 # coordinates in the video (e.g. pointing out
-# an active region or a flare), similar to
+# an astronaut or piece of hardware), similar to
 # hand-annotated documentary footage. Fully
 # optional per video: only activates if a file
 # named <basename>.labels.txt exists.
@@ -325,8 +333,9 @@ DEFAULT_FACTS=(
 #    reflow/resize to fit longer text.
 #  - Coordinates should fall roughly within the
 #    center video strip (x between ~350 and
-#    ~930) so labels point at the Sun itself
-#    rather than overlapping the side panels.
+#    ~930) so labels point at the spacewalk
+#    footage itself rather than overlapping the
+#    side panels.
 #  - The connector is a right-angle line
 #    (vertical then horizontal).
 #  - Requires dot_marker.png (generated once at
@@ -481,15 +490,15 @@ build_labels_chain() {
 # Per-video override: if files named
 #   <basename>.headlines.txt
 #   <basename>.facts.txt
-#   <basename>.wavelength.txt   (single line, e.g. "304 Å — Prominences")
+#   <basename>.mission.txt   (single line, e.g. "Replacing S-band antenna, Aug 18")
 # exist (basename = video filename without
 # extension), they're used verbatim. The
-# wavelength line shows in the right panel's
-# INSTRUMENT block — handy since different SDO
-# clips use different AIA channels.
+# mission line shows in the right panel's
+# EVA MISSION block — handy since different
+# spacewalk clips cover different EVAs.
 #
 # Otherwise falls back to the shared pool
-# (solar_info.txt / facts.txt / built-in
+# (mission_info.txt / facts.txt / built-in
 # defaults), shuffled fresh each video.
 #############################################
 prepare_video_content() {
@@ -541,10 +550,10 @@ prepare_video_content() {
         done < <(printf '%s\n' "${fpool[@]}" | shuf)
     fi
 
-    if [ -f "${base}.wavelength.txt" ]; then
-        head -n 1 "${base}.wavelength.txt" > "$ASSET_DIR/instr_sub.txt"
+    if [ -f "${base}.mission.txt" ]; then
+        head -n 1 "${base}.mission.txt" > "$ASSET_DIR/instr_sub.txt"
     else
-        printf 'Extreme ultraviolet imaging of the solar atmosphere' > "$ASSET_DIR/instr_sub.txt"
+        printf 'Replacing the space-to-ground antenna on Aug 18' > "$ASSET_DIR/instr_sub.txt"
     fi
     fold -s -w 26 "$ASSET_DIR/instr_sub.txt" > "$ASSET_DIR/instr_sub.wrapped.txt"
 
@@ -587,7 +596,7 @@ prepare_video_content() {
     done
     MAX_FACT_LINES=$max_fact_lines
 
-    # ---- Right panel vertical rhythm (stats + instrument + facts) ----
+    # ---- Right panel vertical rhythm (stats + EVA info + facts) ----
     RSTAT_Y=19            # credits / clock / subs / viewers block start
     RDIV1_Y=$((RSTAT_Y + 4 * 20 + 6))
     RINSTR_LABEL_Y=$((RDIV1_Y + 20))
@@ -600,21 +609,24 @@ prepare_video_content() {
     #########################################
     # Rebuild BASE_CHAIN for this video's content
     #########################################
-    # Fit the (typically square) SDO frame into the center strip: scale
-    # up so it fully covers CENTER_W x 720, then crop the small excess
-    # off the sides. That keeps the Sun large and edge-to-edge with no
-    # black bars, at the cost of a modest side crop.
+    # Fit the source frame into the center strip: scale up so it fully
+    # covers CENTER_W x 720, then crop the small excess off the sides.
+    # That keeps the footage large and edge-to-edge with no black bars,
+    # at the cost of a modest side crop.
     CHAIN="color=c=black:s=1280x720[canvas];"
     CHAIN+="[0:v]scale=${CENTER_W}:720:force_original_aspect_ratio=increase,crop=${CENTER_W}:720[vidfit];"
     CHAIN+="[canvas][vidfit]overlay=${CENTER_X0}:0:shortest=1[base];"
 
     # Optional coordinate-based callout labels for this video, drawn
-    # onto the Sun before the panels so the panels stay on top.
+    # onto the footage before the panels so the panels stay on top.
     build_labels_chain "$url"
     CHAIN+="$LABELS_CHAIN"
 
-    # ---------------- Left panel: story / headlines ----------------
-    CHAIN+="${LABELS_OUT}drawbox=x=0:y=0:w=${PANEL_W}:h=720:color=black@0.92:t=fill[p1];"
+    # ---------------- Left panel: mission story / headlines ----------------
+    # Translucent glass card (PANEL_BG/PANEL_ALPHA) instead of a solid
+    # fill — the video keeps showing through the panel for the premium,
+    # see-through look.
+    CHAIN+="${LABELS_OUT}drawbox=x=0:y=0:w=${PANEL_W}:h=720:color=${PANEL_BG}@${PANEL_ALPHA}:t=fill[p1];"
     CHAIN+="[p1]drawbox=x=${PANEL_W}:y=0:w=3:h=720:color=${GOLD}@0.75:t=fill[p2];"
     CHAIN+="[p2]drawbox=x=0:y=0:w=${PANEL_W}:h=4:color=${GOLD}@0.9:t=fill[p3];"
 
@@ -670,7 +682,7 @@ prepare_video_content() {
         fi
     done
 
-    # ---------------- Left panel: live "solar activity" graph ----------------
+    # ---------------- Left panel: live "station telemetry" graph ----------------
     # Fills the blank space under the progress dots with an animated
     # equalizer-style bar graph plus a live-looking percentage readout.
     # Every bar is a pure ffmpeg expression (two out-of-phase sine waves
@@ -686,7 +698,7 @@ prepare_video_content() {
     local BAR_MAXH=100
 
     CHAIN+="[${prev}]drawbox=x=$((TEXT_INSET - 2)):y=$((GRAPH_LABEL_Y - 2)):w=6:h=6:color=${GOLD}:t=fill:enable='lt(mod(t\,1.4)\,0.9)'[sa1];"
-    CHAIN+="[sa1]drawtext=fontfile=${FONT}:text='SOLAR ACTIVITY':fontcolor=white@0.55:fontsize=11:x=$((TEXT_INSET + 14)):y=$((GRAPH_LABEL_Y - 8))[sa2];"
+    CHAIN+="[sa1]drawtext=fontfile=${FONT}:text='STATION TELEMETRY':fontcolor=white@0.55:fontsize=11:x=$((TEXT_INSET + 14)):y=$((GRAPH_LABEL_Y - 8))[sa2];"
     CHAIN+="[sa2]drawtext=fontfile=${FONT}:text='%{eif\:64+24*sin(2*PI*t/11)\:d} PCT':fontcolor=${GOLD}:fontsize=16:x=${TEXT_INSET}:y=$((GRAPH_LABEL_Y + 10)):${SHADOW}[sa3];"
     prev="sa3"
 
@@ -702,12 +714,13 @@ prepare_video_content() {
     CHAIN+="[${prev}]drawbox=x=${TEXT_INSET}:y=${GRAPH_BASE_Y}:w=${PANEL_TEXT_W}:h=1:color=white@0.2:t=fill[sabase];"
     prev="sabase"
 
-    # ---------------- Right panel: stats + instrument + facts ----------------
-    CHAIN+="[${prev}]drawbox=x=${RIGHT_X0}:y=0:w=${PANEL_W}:h=720:color=black@0.92:t=fill[r1];"
+    # ---------------- Right panel: stats + EVA info + facts ----------------
+    # Same translucent glass treatment as the left panel.
+    CHAIN+="[${prev}]drawbox=x=${RIGHT_X0}:y=0:w=${PANEL_W}:h=720:color=${PANEL_BG}@${PANEL_ALPHA}:t=fill[r1];"
     CHAIN+="[r1]drawbox=x=$((RIGHT_X0 - 3)):y=0:w=3:h=720:color=${GOLD}@0.75:t=fill[r2];"
     CHAIN+="[r2]drawbox=x=${RIGHT_X0}:y=0:w=${PANEL_W}:h=4:color=${GOLD}@0.9:t=fill[r3];"
 
-    CHAIN+="[r3]drawtext=fontfile=${FONT}:text='Credits\: NASA / SDO':fontcolor=white@0.85:fontsize=14:x=${RTEXT_INSET}:y=${RSTAT_Y}[r4];"
+    CHAIN+="[r3]drawtext=fontfile=${FONT}:text='Credits\: NASA':fontcolor=white@0.85:fontsize=14:x=${RTEXT_INSET}:y=${RSTAT_Y}[r4];"
     CHAIN+="[r4]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/clock.txt:reload=1:fontcolor=${GOLD}:fontsize=14:x=${RTEXT_INSET}:y=$((RSTAT_Y + 20))[r5];"
     CHAIN+="[r5]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/subs.txt:reload=1:fontcolor=white@0.75:fontsize=13:x=${RTEXT_INSET}:y=$((RSTAT_Y + 40))[r6];"
     CHAIN+="[r6]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/viewers.txt:reload=1:fontcolor=white@0.75:fontsize=13:x=${RTEXT_INSET}:y=$((RSTAT_Y + 60))[r7];"
@@ -732,10 +745,11 @@ prepare_video_content() {
         prev="$nxt"
     done
 
-    # ---------------- Right panel: live readings + EUV graph ----------------
-    # Same idea as the left panel's activity graph, mirrored on this
-    # side with a temperature readout on top (using the same live-number
-    # %{eif:...} trick) so both panels feel "alive" instead of static.
+    # ---------------- Right panel: live readings + comms-signal graph ----------------
+    # Same idea as the left panel's telemetry graph, mirrored on this
+    # side with an orbit readout on top (using the same live-number
+    # %{eif:...} trick — real ISS altitude/velocity figures with a
+    # gentle sine wobble) so both panels feel "alive" instead of static.
     local RREAD_DIV_Y=$((RFACT_TEXT_Y + MAX_FACT_LINES * FACT_LINE_H + 16))
     local RREAD_LABEL_Y=$((RREAD_DIV_Y + 14))
     local RREAD_LINE1_Y=$((RREAD_LABEL_Y + 22))
@@ -745,12 +759,12 @@ prepare_video_content() {
 
     CHAIN+="[${prev}]drawbox=x=${RTEXT_INSET}:y=${RREAD_DIV_Y}:w=${PANEL_TEXT_W}:h=2:color=white@0.15:t=fill[rr0];"
     CHAIN+="[rr0]drawtext=fontfile=${FONT}:text='LIVE READINGS':fontcolor=${GOLD}@0.85:fontsize=12:x=${RTEXT_INSET}:y=${RREAD_LABEL_Y}[rr1];"
-    CHAIN+="[rr1]drawtext=fontfile=${FONT}:text='SURFACE   5\,500 C':fontcolor=white@0.85:fontsize=14:x=${RTEXT_INSET}:y=${RREAD_LINE1_Y}[rr2];"
-    CHAIN+="[rr2]drawtext=fontfile=${FONT}:text='CORE   %{eif\:14900000+400000*sin(t/7)\:d} K':fontcolor=white@0.85:fontsize=14:x=${RTEXT_INSET}:y=${RREAD_LINE2_Y}[rr3];"
+    CHAIN+="[rr1]drawtext=fontfile=${FONT}:text='ALTITUDE   %{eif\:408+2*sin(t/9)\:d} KM':fontcolor=white@0.85:fontsize=14:x=${RTEXT_INSET}:y=${RREAD_LINE1_Y}[rr2];"
+    CHAIN+="[rr2]drawtext=fontfile=${FONT}:text='VELOCITY   %{eif\:27600+150*sin(t/6)\:d} KM/H':fontcolor=white@0.85:fontsize=14:x=${RTEXT_INSET}:y=${RREAD_LINE2_Y}[rr3];"
     prev="rr3"
 
     CHAIN+="[${prev}]drawbox=x=$((RTEXT_INSET - 2)):y=$((RGRAPH_LABEL_Y - 2)):w=6:h=6:color=${RED}:t=fill:enable='lt(mod(t\,1.2)\,0.75)'[rg1];"
-    CHAIN+="[rg1]drawtext=fontfile=${FONT}:text='EUV FLUX':fontcolor=white@0.55:fontsize=11:x=$((RTEXT_INSET + 14)):y=$((RGRAPH_LABEL_Y - 8))[rg2];"
+    CHAIN+="[rg1]drawtext=fontfile=${FONT}:text='COMMS SIGNAL':fontcolor=white@0.55:fontsize=11:x=$((RTEXT_INSET + 14)):y=$((RGRAPH_LABEL_Y - 8))[rg2];"
     prev="rg2"
 
     local RBAR_COUNT=14
@@ -791,13 +805,15 @@ build_final_filter() {
     local CTA_ENABLE="between(mod(t\,${CTA_CYCLE})\,0\,${CTA_SHOW})"
     local COUNTDOWN_ENABLE="not(${CTA_ENABLE})"
 
-    # CTA / countdown box sits centered under the Sun, inside the video
-    # strip, so it doesn't have to compete for space with either panel.
+    # CTA / countdown box sits centered under the footage, inside the
+    # video strip, so it doesn't have to compete for space with either
+    # panel. Kept slightly more opaque than the side panels since it
+    # sits directly over moving video and needs to stay legible.
     local CTA_W=460
     local CTA_X=$((CENTER_X0 + (CENTER_W - CTA_W) / 2))
     local CTA_Y=640
 
-    tail+="[${FACT_END}]drawbox=x=${CTA_X}:y=${CTA_Y}:w=${CTA_W}:h=43:color=black@0.75:t=fill[cta_bg];"
+    tail+="[${FACT_END}]drawbox=x=${CTA_X}:y=${CTA_Y}:w=${CTA_W}:h=43:color=black@0.7:t=fill[cta_bg];"
     tail+="[cta_bg]drawbox=x=${CTA_X}:y=${CTA_Y}:w=4:h=43:color=${GOLD}:t=fill[cta_bar];"
     tail+="[cta_bar]drawbox=x=$((CTA_X + 22)):y=$((CTA_Y + 16)):w=11:h=11:color=${RED}:t=fill:enable='${CTA_ENABLE}'[cta_dot];"
     tail+="[cta_dot]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/cta.txt:fontcolor=white:fontsize=18:x=$((CTA_X + 40)):y=$((CTA_Y + 13)):alpha='${CTA_ALPHA}'[cta_sub];"
@@ -808,11 +824,11 @@ build_final_filter() {
         tail+="[cta_sub]drawtext=fontfile=${FONT}:text='Coming up next...':fontcolor=white@0.85:fontsize=18:x=$((CTA_X + 40)):y=$((CTA_Y + 13)):enable='${COUNTDOWN_ENABLE}'[cta_final];"
     fi
 
-    # Bottom ticker spans the full width, under both panels and the Sun.
-    tail+="[cta_final]drawbox=x=0:y=680:w=1280:h=40:color=black@0.85:t=fill[tk1];"
+    # Bottom ticker spans the full width, under both panels and the footage.
+    tail+="[cta_final]drawbox=x=0:y=680:w=1280:h=40:color=black@0.7:t=fill[tk1];"
     tail+="[tk1]drawbox=x=0:y=680:w=1280:h=2:color=${GOLD}@0.9:t=fill[tk2];"
     tail+="[tk2]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/ticker.txt:fontcolor=white:fontsize=17:borderw=2:bordercolor=black@0.6:y=695:x='w-mod(t*${TICKER_SPEED}\,text_w+w)'[tk3];"
-    tail+="[tk3]drawbox=x=0:y=680:w=120:h=40:color=black@0.9:t=fill[tk4];"
+    tail+="[tk3]drawbox=x=0:y=680:w=120:h=40:color=black@0.85:t=fill[tk4];"
     tail+="[tk4]drawbox=x=0:y=682:w=113:h=38:color=${GOLD}:t=fill[tk5];"
     tail+="[tk5]drawtext=fontfile=${FONT}:text='LIVE NOW':fontcolor=black:fontsize=15:x=13:y=695[tk6];"
 
